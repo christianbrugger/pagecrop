@@ -28,7 +28,6 @@ except ImportError:
     import cv2
 import img2pdf
 
-
 from utils import show_images, time_ctx
 
 
@@ -188,20 +187,16 @@ def main():
     for name in sorted(os.listdir(".")):
         if name.startswith("test_"):
             i += 1
-
-            with time_ctx("read image"):
-                test = codec.imread(name)
-
-            with time_ctx("extract page"):
-                page = extract_page(test)
-
-            with time_ctx("store jpg"):
+            with time_ctx("page {}".format(i)):
+                img = codec.imread(name)
+                page = extract_page(img)
                 outname = 'output_{}.jpg'.format(i)
                 codec.imwrite(outname, page)
                 names_jpg.append(outname)
 
-    with open("output_jpg.pdf", "wb") as f:
-        f.write(img2pdf.convert(names_jpg))
+    with time_ctx("pdf".format(i)):
+        with open("output_jpg.pdf", "wb") as f:
+            f.write(img2pdf.convert(names_jpg))
 
 
 if __name__ == "__main__":
