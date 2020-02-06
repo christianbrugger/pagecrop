@@ -1,10 +1,8 @@
 
 """
-pip install glymur==0.8.19
 pip install img2pdf
 """
 
-import math
 import os
 
 import numpy as np
@@ -13,39 +11,13 @@ try:
     import cv2.cv2 as cv2
 except ImportError:
     import cv2
-import glymur
 import img2pdf
 
-from utils import show_images, round_up_to_odd, time_ctx, show_histogram
+from utils import show_images, time_ctx
 
-
-def biggest_contour(contours):
-    areas = list(map(cv2.contourArea, contours))
-    return contours[np.argmax(areas)]
 
 def resize(img, factor):
     return cv2.resize(img, (0,0), fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC)
-
-
-def get_contour_color(img, border=0.05, _debug=True):
-    # blurr
-    ksize = round_up_to_odd(img.shape[0] * border)
-    blurr = cv2.medianBlur(img, ksize)
-
-    # mask border color
-    hsv = cv2.cvtColor(blurr, cv2.COLOR_BGR2HSV)
-    patch = hsv[:math.ceil(hsv.shape[0] * border), :math.ceil(hsv.shape[1] * border)]
-    bg_hue = np.median(patch[:,:,0])
-    mask = cv2.inRange(hsv, np.array([bg_hue - 10, 100, 20]), np.array([bg_hue + 10, 255, 255]))
-
-    # remove holes
-    contours = cv2.findContours(cv2.bitwise_not(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    contour = biggest_contour(contours)
-
-    if _debug:
-        show_images([blurr, mask, with_contour(img, contour)])
-
-    return contour
 
 
 def convex_area(contour):
@@ -84,15 +56,6 @@ def with_contour(img, contour):
     output = img.copy()
     cv2.drawContours(output, [np.array(contour).astype(int)], 0, (0, 255, 0), 10)
     return output
-
-
-def get_center(contour):
-    M = cv2.moments(contour)
-    return M["m10"] / M["m00"], M["m01"] / M["m00"]
-
-
-def min_area_rect(contour):
-    return cv2.boxPoints(cv2.minAreaRect(contour))
 
 
 def get_cropped_min_area_rect(contour, img):
@@ -152,10 +115,11 @@ def extract_page(img):
 
 
 def main():
-    names_jp2 = []
     names_jpg = []
-    for i, name in enumerate(os.listdir(".")):
+    i = 0
+    for name in sorted(os.listdir(".")):
         if name.startswith("test_"):
+            i += 1
 
             with time_ctx("read image"):
                 test = cv2.imread(name)
@@ -165,21 +129,11 @@ def main():
 
             with time_ctx("store jpg"):
                 outname = 'output_{}.jpg'.format(i)
-                cv2.imwrite(outname, page, (cv2.IMWRITE_JPEG_QUALITY, 60))
+                cv2.imwrite(outname, page, (cv2.IMWRITE_JPEG_QUALITY, 70))
                 names_jpg.append(outname)
-
-            with time_ctx("store jpeg2000"):
-                outname = 'output_{}.jp2'.format(i)
-                glymur.Jp2k(outname, page[:,:,::-1], irreversible=True, cratios=[50])
-                names_jp2.append(outname)
 
     with open("output_jpg.pdf", "wb") as f:
         f.write(img2pdf.convert(names_jpg))
-    with open("output_jp2.pdf", "wb") as f:
-        f.write(img2pdf.convert(names_jp2))
-
-
-        #show_images([page])
 
 
 if __name__ == "__main__":

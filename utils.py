@@ -33,14 +33,6 @@ def show_images(images, horizontal_image=2, filename=None):
         plt.savefig(filename + ".png", dpi=300)
 
 
-def show_histogram(img):
-    if len(img.shape) == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    res = plt.hist(img.ravel(), bins=255, range=(0, 255), fc='k', ec='k')
-    plt.yscale("log")
-    plt.show()
-
-
 class time_ctx(object):
     """contect manager that measures time"""
     def __init__(self, description):
