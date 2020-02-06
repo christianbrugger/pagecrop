@@ -1,9 +1,12 @@
 
 """
 pip install img2pdf
+
+Inspiration: https://www.pyimagesearch.com/2014/09/01/build-kick-ass-mobile-document-scanner-just-5-minutes/
 """
 
 import os
+import math
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -70,16 +73,20 @@ def with_contour(img, contour):
 @profile
 def get_cropped_min_area_rect(contour, img):
     rect = cv2.minAreaRect(contour)
-    # Get center, size, and angle from rect
-    center, size, theta = rect
-    # Convert to int
-    center, size = tuple(map(int, center)), tuple(map(int, size))
-    # Get rotation matrix for rectangle
-    M = cv2.getRotationMatrix2D(center, theta, 1)
-    # Perform rotation on src image
-    dst = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_CUBIC)
-    out = cv2.getRectSubPix(dst, size, center)
-    return out
+    width = rect[1][0]
+    height = rect[1][1]
+
+    # The lowest point of the rectangle will always be the first element.
+    # All other points will follow in a clockwise-direction.
+    # We make sure that the first element is always the lower left corner.
+    corners = cv2.boxPoints(rect)
+    if corners[0][0] > corners[1][0]:
+        corners = np.roll(corners, -1, axis=0)
+        height, width = width, height
+
+    dst = np.array([[0, height - 1], [0, 0], [width - 1, 0], [width - 1, height - 1]], dtype=np.float32)
+    M = cv2.getPerspectiveTransform(corners, dst)
+    return cv2.warpPerspective(img, M, (math.ceil(width), math.ceil(height)), flags=cv2.INTER_CUBIC)
 
 
 @profile
@@ -148,7 +155,6 @@ def main():
                 outname = 'output_{}.jpg'.format(i)
                 cv2.imwrite(outname, page, (cv2.IMWRITE_JPEG_QUALITY, 70))
                 names_jpg.append(outname)
-            break
 
     with open("output_jpg.pdf", "wb") as f:
         f.write(img2pdf.convert(names_jpg))
