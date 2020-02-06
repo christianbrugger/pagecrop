@@ -16,6 +16,14 @@ import img2pdf
 from utils import show_images, time_ctx
 
 
+try:
+    profile
+except NameError:
+    def profile(f):
+        return f
+
+
+@profile
 def resize(img, factor):
     return cv2.resize(img, (0,0), fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC)
 
@@ -25,6 +33,7 @@ def convex_area(contour):
     return cv2.contourArea(hull)
 
 
+@profile
 def get_contour_canny(img, ksize_smooth=7, _debug=False):
     scale = 500 / img.shape[0]
     resized = resize(img, scale)
@@ -47,7 +56,7 @@ def get_contour_canny(img, ksize_smooth=7, _debug=False):
 
 
 def to_mask(contour, img):
-    res = np.zeros(img.shape[:2])
+    res = np.zeros(img.shape[:2], np.uint8)
     cv2.drawContours(res, [contour], 0, 255, -1)
     return res
 
@@ -58,6 +67,7 @@ def with_contour(img, contour):
     return output
 
 
+@profile
 def get_cropped_min_area_rect(contour, img):
     rect = cv2.minAreaRect(contour)
     # Get center, size, and angle from rect
@@ -67,36 +77,41 @@ def get_cropped_min_area_rect(contour, img):
     # Get rotation matrix for rectangle
     M = cv2.getRotationMatrix2D(center, theta, 1)
     # Perform rotation on src image
-    dst = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]))
+    dst = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_CUBIC)
     out = cv2.getRectSubPix(dst, size, center)
     return out
 
 
+@profile
 def crop_page(img, contour):
-    page = img.copy()
     mask = to_mask(contour, img)
-    page[mask == 0] = 0, 0, 0
-
+    page = cv2.bitwise_or(img, img, mask=mask)
     crop = get_cropped_min_area_rect(contour, page)
     return crop
 
 
+@profile
 def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
     yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
 
-    # white point
-    hist = np.histogram(yuv[:,:,0], 255, (0, 255))[0] / (img.shape[0] * img.shape[1])
+    # calculate white point
+    hist = cv2.calcHist([yuv], channels=[0], mask=None, histSize=[256], ranges=[0,255])[:,0]
+    hist /= (img.shape[0] * img.shape[1])
     hist[0] = 0
     cutoff = np.max(hist) * threshold
-    white = np.max(np.arange(255)[hist > cutoff])
+    white = np.max(np.arange(256)[hist > cutoff])
     white = max(white, min_white)
 
     # adjust intensity
-    gray = yuv[:,:,0].astype(float) / 255.
-    gray_white = gray * 255 / white
-    gray_gamma = gray_white ** ((255 / white) ** 0.75)
-
-    yuv[:,:,0] = np.clip(gray_gamma * 255, 0, 255).astype(np.uint8)
+    table = []
+    for val in np.arange(0, 256):
+        val_float = val / 255.0
+        val_white = val_float * 255 / white
+        val_gamma = val_white ** (255 / white) ** 0.75
+        val_clipped = np.clip(val_gamma * 255, 0, 255)
+        table.append(val_clipped)
+    table = np.array(table, np.uint8)
+    yuv[:,:,0] = cv2.LUT(yuv[:,:,0], table)
     output = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
 
     if _debug:
@@ -107,6 +122,7 @@ def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
     return output
 
 
+@profile
 def extract_page(img):
     contour = get_contour_canny(img)
     page = crop_page(img, contour)
@@ -114,6 +130,7 @@ def extract_page(img):
     return page
 
 
+@profile
 def main():
     names_jpg = []
     i = 0
@@ -131,6 +148,7 @@ def main():
                 outname = 'output_{}.jpg'.format(i)
                 cv2.imwrite(outname, page, (cv2.IMWRITE_JPEG_QUALITY, 70))
                 names_jpg.append(outname)
+            break
 
     with open("output_jpg.pdf", "wb") as f:
         f.write(img2pdf.convert(names_jpg))
