@@ -85,18 +85,19 @@ def with_contour(img, contour):
 @profile
 def get_cropped_min_area_rect(contour, img):
     rect = cv2.minAreaRect(contour)
-    width = rect[1][0]
-    height = rect[1][1]
+    width = rect[1][1]
+    height = rect[1][0]
 
     # The lowest point of the rectangle will always be the first element.
     # All other points will follow in a clockwise-direction.
-    # We make sure that the first element is always the lower left corner.
+    # We make sure that the first element is always the top left corner.
     corners = cv2.boxPoints(rect)
-    if corners[0][0] > corners[1][0]:
+    # We rotate until the closest point to the origin is at the front
+    while np.argmin(corners.sum(axis=1)) != 0:
         corners = np.roll(corners, -1, axis=0)
         height, width = width, height
 
-    dst = np.array([[0, height - 1], [0, 0], [width - 1, 0], [width - 1, height - 1]], dtype=np.float32)
+    dst = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype=np.float32)
     M = cv2.getPerspectiveTransform(corners, dst)
     return cv2.warpPerspective(img, M, (math.ceil(width), math.ceil(height)), flags=cv2.INTER_CUBIC)
 
@@ -163,7 +164,6 @@ class JpegCodec:
             except RuntimeError as exp:
                 print("WARNING:", exp)
 
-
     def imread(self, path):
         if self.turbo:
             with open(path, "rb") as f:
@@ -171,12 +171,12 @@ class JpegCodec:
         else:
             return cv2.imread(path)
 
-    def imwrite(self, path, img):
+    def imwrite(self, path, img, quality=70):
         if self.turbo:
             with open(path, "wb") as f:
-                f.write(self.turbo.encode(img, quality=70))
+                f.write(self.turbo.encode(img, quality=quality))
         else:
-            cv2.imwrite(path, img, (cv2.IMWRITE_JPEG_QUALITY, 70))
+            cv2.imwrite(path, img, (cv2.IMWRITE_JPEG_QUALITY, quality))
 
 
 @profile
