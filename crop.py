@@ -1,20 +1,33 @@
 
 """
+Required:
+pip install numpy
+pip install opencv-python
 pip install img2pdf
 
+Optional (speedup):
+pip install PyTurboJPEG
+sudo apt install libturbojpeg
+
 Inspiration: https://www.pyimagesearch.com/2014/09/01/build-kick-ass-mobile-document-scanner-just-5-minutes/
+
+Debugging:
+pip install matplotlib
+pip install line_profiler
+    kernprof -l crop.py
+    python -m line_profiler crop.py.lprof
 """
 
 import os
 import math
 
 import numpy as np
-import matplotlib.pyplot as plt
 try:
     import cv2.cv2 as cv2
 except ImportError:
     import cv2
 import img2pdf
+
 
 from utils import show_images, time_ctx
 
@@ -122,6 +135,7 @@ def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
     output = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
 
     if _debug:
+        import matplotlib.pyplot as plt
         plt.plot(hist)
         plt.show()
         print(hist)
@@ -137,8 +151,38 @@ def extract_page(img):
     return page
 
 
+class JpegCodec:
+    def __init__(self):
+        self.turbo = None
+        try:
+            import turbojpeg
+        except ImportError:
+            print("INFO: libjpeg-turbo is not installed. Install with pip install PyTurboJPEG")
+        else:
+            try:
+                self.turbo = turbojpeg.TurboJPEG()
+            except RuntimeError as exp:
+                print("WARNING:", exp)
+
+
+    def imread(self, path):
+        if self.turbo:
+            with open(path, "rb") as f:
+                return self.turbo.decode(f.read())
+        else:
+            return cv2.imread(path)
+
+    def imwrite(self, path, img):
+        if self.turbo:
+            with open(path, "wb") as f:
+                f.write(self.turbo.encode(img, quality=70))
+        else:
+            cv2.imwrite(path, img, (cv2.IMWRITE_JPEG_QUALITY, 70))
+
+
 @profile
 def main():
+    codec = JpegCodec()
     names_jpg = []
     i = 0
     for name in sorted(os.listdir(".")):
@@ -146,14 +190,14 @@ def main():
             i += 1
 
             with time_ctx("read image"):
-                test = cv2.imread(name)
+                test = codec.imread(name)
 
             with time_ctx("extract page"):
                 page = extract_page(test)
 
             with time_ctx("store jpg"):
                 outname = 'output_{}.jpg'.format(i)
-                cv2.imwrite(outname, page, (cv2.IMWRITE_JPEG_QUALITY, 70))
+                codec.imwrite(outname, page)
                 names_jpg.append(outname)
 
     with open("output_jpg.pdf", "wb") as f:
@@ -161,4 +205,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with time_ctx("total time:"):
+        main()

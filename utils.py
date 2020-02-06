@@ -2,7 +2,6 @@
 import time
 
 import numpy as np
-import matplotlib.pyplot as plt
 try:
     import cv2.cv2 as cv2
 except ImportError:
@@ -13,6 +12,7 @@ def show_images(images, horizontal_image=2, filename=None):
     """
     Show multiple images in a GUI window or save them to a file
     """
+    import matplotlib.pyplot as plt
     plt.clf()
     columns = min(len(images), horizontal_image)
     rows = int(np.ceil(len(images) / float(horizontal_image)))
