@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 """
 Required:
@@ -14,12 +15,15 @@ Inspiration: https://www.pyimagesearch.com/2014/09/01/build-kick-ass-mobile-docu
 Debugging:
 pip install matplotlib
 pip install line_profiler
-    kernprof -l crop.py
-    python -m line_profiler crop.py.lprof
+    kernprof -l -v crop.py
 """
 
 import os
 import math
+import argparse
+import pathlib
+import sys
+import shutil
 
 import numpy as np
 try:
@@ -180,23 +184,58 @@ class JpegCodec:
 
 
 @profile
-def main():
+def convert_to_pdf(input_files, output_files, pdf_path):
     codec = JpegCodec()
-    names_jpg = []
-    i = 0
-    for name in sorted(os.listdir(".")):
-        if name.startswith("test_"):
-            i += 1
-            with time_ctx("page {}".format(i)):
-                img = codec.imread(name)
-                page = extract_page(img)
-                outname = 'output_{}.jpg'.format(i)
-                codec.imwrite(outname, page)
-                names_jpg.append(outname)
+    for i, input_path, output_path in zip(range(len(input_files)), input_files, output_files):
+        with time_ctx("page {}/{}".format(i + 1, len(input_files))):
+            img = codec.imread(input_path)
+            page = extract_page(img)
+            codec.imwrite(output_path, page)
 
-    with time_ctx("pdf".format(i)):
-        with open("output_jpg.pdf", "wb") as f:
-            f.write(img2pdf.convert(names_jpg))
+    with time_ctx("pdf"):
+        with open(pdf_path, "wb") as f:
+            f.write(img2pdf.convert(output_files))
+
+
+def delete_path(path, folder=True, ask_overwrite=True):
+    """Ask the user to delete the folder or file. Otherwise exit."""
+    if path.exists():
+        if (folder and not path.is_dir()) or (not folder and not path.is_file()):
+            print("FATAL: output path '{}' already exists. Please delete it.".format(path))
+            sys.exit(2)
+        else:
+            if ask_overwrite and input("Warning: output path '{}' exists. Delete? [yes/No] ".format(path)).lower() \
+                    not in ["y", "yes"]:
+                sys.exit(1)
+            if folder:
+                shutil.rmtree(str(path))
+            else:
+                path.unlink()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("folder", help="folder with *.jpg files.")
+    parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
+    args = parser.parse_args()
+
+    # calculate all paths
+    folder = pathlib.Path(args.folder)
+    inputs = list(sorted(folder.glob("*.[jJ][pP][gG]")))
+    output_folder = folder.parent / ("crop_" + folder.name)
+    outputs = [output_folder / ("crop_" + path.name) for path in inputs]
+    pdfpath = folder.parent / (folder.name + ".pdf")
+
+    # prepare file system
+    ask_overwrite = not args.yes
+    delete_path(pdfpath, folder=False, ask_overwrite=ask_overwrite)
+    delete_path(output_folder, folder=True, ask_overwrite=ask_overwrite)
+    output_folder.mkdir()
+
+    # invoke
+    def to_str(iterable):
+        return list(map(str, iterable))
+    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath))
 
 
 if __name__ == "__main__":
