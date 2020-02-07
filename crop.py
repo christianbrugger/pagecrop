@@ -47,25 +47,48 @@ def resize(img, factor):
     return cv2.resize(img, (0,0), fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC)
 
 
-def convex_area(contour):
-    hull = cv2.convexHull(contour)
-    return cv2.contourArea(hull)
+def morphEx(img, morph_type, ksize):
+    bsize = ksize // 2
+    bordered = cv2.copyMakeBorder(img, bsize, bsize, bsize, bsize, borderType=cv2.BORDER_CONSTANT, value=0)
+
+    kernel = np.ones((ksize,)*2, np.uint8)
+    filtered = cv2.morphologyEx(bordered, morph_type, kernel, borderValue=0)
+
+    result = filtered[bsize:-bsize, bsize:-bsize]
+    assert result.shape == img.shape, (result.shape, img.shape)
+    return result
+
+
+def increasing_close_open(img, max_ksize):
+    assert max_ksize % 2 == 1
+    ksize = 3
+    while ksize <= max_ksize:
+        img = morphEx(img, cv2.MORPH_CLOSE, ksize)
+        img = morphEx(img, cv2.MORPH_OPEN, ksize)
+        ksize += 2
+    return img
+
+
+def with_contour(img, contour):
+    output = img.copy()
+    cv2.drawContours(output, [np.array(contour).astype(int)], 0, (0, 255, 0), 10)
+    return output
 
 
 @profile
-def get_contour_canny(img, ksize_smooth=7, _debug=False):
+def get_contour_canny(img, ksize_smooth=7, ksize_close=30, _debug=False):
     scale = 500 / img.shape[0]
     resized = resize(img, scale)
 
     gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
     blurr = cv2.medianBlur(gray, ksize_smooth)
-    opened = cv2.morphologyEx(blurr, cv2.MORPH_OPEN, np.ones((ksize_smooth,)*2, np.uint8))
-    edged = cv2.Canny(opened, 40, 200)
-    closed_edged = cv2.morphologyEx(edged, cv2.MORPH_CLOSE, np.ones((ksize_smooth,)*2, np.uint8))
+    opened = increasing_close_open(blurr, ksize_smooth)
+    edged = cv2.Canny(opened, 20, 100)
+    closed_edged = morphEx(edged, cv2.MORPH_CLOSE, ksize_close)
 
     contours = cv2.findContours(closed_edged, cv2.RETR_LIST, cv2.CHAIN_APPROX_TC89_KCOS)[0]
-    #hulls = map(cv2.convexHull, contours)
-    raw_contour = max(contours, key=convex_area)
+    ####hulls = map(cv2.convexHull, contours)
+    raw_contour = max(contours, key=cv2.contourArea)
     contour = np.round(raw_contour.reshape(-1, 2) / scale).astype(int)
 
     if _debug:
@@ -78,12 +101,6 @@ def to_mask(contour, img):
     res = np.zeros(img.shape[:2], np.uint8)
     cv2.drawContours(res, [contour], 0, 255, -1)
     return res
-
-
-def with_contour(img, contour):
-    output = img.copy()
-    cv2.drawContours(output, [np.array(contour).astype(int)], 0, (0, 255, 0), 10)
-    return output
 
 
 @profile
@@ -148,8 +165,8 @@ def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
 
 
 @profile
-def extract_page(img):
-    contour = get_contour_canny(img)
+def extract_page(img, _debug=False):
+    contour = get_contour_canny(img, _debug=_debug)
     page = crop_page(img, contour)
     page = correct_brightness(page)
     return page
@@ -184,12 +201,12 @@ class JpegCodec:
 
 
 @profile
-def convert_to_pdf(input_files, output_files, pdf_path):
+def convert_to_pdf(input_files, output_files, pdf_path, _debug=False):
     codec = JpegCodec()
     for i, input_path, output_path in zip(range(len(input_files)), input_files, output_files):
         with time_ctx("page {}/{}".format(i + 1, len(input_files))):
             img = codec.imread(input_path)
-            page = extract_page(img)
+            page = extract_page(img, _debug=_debug)
             codec.imwrite(output_path, page)
 
     with time_ctx("pdf"):
@@ -213,21 +230,15 @@ def delete_path(path, folder=True, ask_overwrite=True):
                 path.unlink()
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("folder", help="folder with *.jpg files.")
-    parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
-    args = parser.parse_args()
-
+def convert_folder(foldername, ask_overwrite=True, _debug=False):
     # calculate all paths
-    folder = pathlib.Path(args.folder)
+    folder = pathlib.Path(foldername)
     inputs = list(sorted(folder.glob("*.[jJ][pP][gG]")))
     output_folder = folder.parent / ("crop_" + folder.name)
     outputs = [output_folder / ("crop_" + path.name) for path in inputs]
     pdfpath = folder.parent / (folder.name + ".pdf")
 
     # prepare file system
-    ask_overwrite = not args.yes
     delete_path(pdfpath, folder=False, ask_overwrite=ask_overwrite)
     delete_path(output_folder, folder=True, ask_overwrite=ask_overwrite)
     output_folder.mkdir()
@@ -235,7 +246,25 @@ def main():
     # invoke
     def to_str(iterable):
         return list(map(str, iterable))
-    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath))
+
+    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath), _debug=_debug)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("folder", help="folder with *.jpg files.", nargs="+")
+    parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
+    parser.add_argument("--debug", help="show debug plots.", action="store_true")
+    args = parser.parse_args()
+
+    for foldername in args.folder:
+        if os.path.isdir(foldername):
+            print("Processing '{}':".format(foldername))
+            convert_folder(foldername, ask_overwrite=not args.yes, _debug=args.debug)
+            print()
+        else:
+            print("Skipping '{}'".format(foldername))
+            print()
 
 
 if __name__ == "__main__":
