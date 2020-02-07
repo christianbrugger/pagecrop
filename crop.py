@@ -92,7 +92,7 @@ def get_contour_canny(img, ksize_smooth=7, ksize_close=30, _debug=False):
     contour = np.round(raw_contour.reshape(-1, 2) / scale).astype(int)
 
     if _debug:
-        show_images([opened, edged, closed_edged, with_contour(img, contour)])
+        show_images([opened, edged, closed_edged, with_contour(img, contour)], show=False)
 
     return contour
 
@@ -131,35 +131,50 @@ def crop_page(img, contour):
     return crop
 
 
+def calc_hist(gray):
+    hist = cv2.calcHist([gray], channels=[0], mask=None, histSize=[256], ranges=[0,255])[:,0]
+    hist /= (gray.shape[0] * gray.shape[1])
+    hist[:5] = 0
+    return hist
+
+
 @profile
-def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
-    yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
+def correct_brightness(img, threshold=0.05, min_white=150, max_black=50, _debug=True):
+    blurred = cv2.medianBlur(img, 3)
+    lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB)
 
-    # calculate white point
-    hist = cv2.calcHist([yuv], channels=[0], mask=None, histSize=[256], ranges=[0,255])[:,0]
-    hist /= (img.shape[0] * img.shape[1])
-    hist[0] = 0
+    # adaptive histogram equalization
+    lab[:,:,0] = cv2.createCLAHE(clipLimit=0.7, tileGridSize=(8, 8)).apply(lab[:,:,0])
+
+    # calculate white and black point
+    hist = calc_hist(lab[:,:,0])
     cutoff = np.max(hist) * threshold
-    white = np.max(np.arange(256)[hist > cutoff])
+    white = np.max(np.arange(256)[hist > cutoff]) + 10
     white = max(white, min_white)
+    black = np.min(np.arange(256)[hist > cutoff]) / 3
+    black = min(black, max_black)
 
-    # adjust intensity
-    table = []
-    for val in np.arange(0, 256):
-        val_float = val / 255.0
-        val_white = val_float * 255 / white
-        val_gamma = val_white ** (255 / white) ** 0.75
-        val_clipped = np.clip(val_gamma * 255, 0, 255)
-        table.append(val_clipped)
-    table = np.array(table, np.uint8)
-    yuv[:,:,0] = cv2.LUT(yuv[:,:,0], table)
-    output = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+    # adjust lightness
+    val_black = np.arange(0, 256) - black
+    val_white = val_black / (white - black) * 255
+    table = np.clip(val_white, 0, 255).astype(np.uint8)
+    lab[:,:,0] = cv2.LUT(lab[:,:,0], table)
+
+    # increase saturation
+    sat = 127 * 0.15  # percent
+    val_sat = (np.arange(0, 256) - sat) / (255 - 2 * sat) * 255
+    table = np.clip(val_sat, 0, 255).astype(np.uint8)
+    lab[:,:,1] = cv2.LUT(lab[:,:,1], table)
+    lab[:,:,2] = cv2.LUT(lab[:,:,2], table)
+
+    output = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
     if _debug:
         import matplotlib.pyplot as plt
+        plt.figure()
         plt.plot(hist)
-        plt.show()
-        print(hist)
+        plt.plot(calc_hist(cv2.cvtColor(output, cv2.COLOR_BGR2LAB)[:,:,0]))
+        show_images([img, output], show=False)
 
     return output
 
@@ -168,7 +183,7 @@ def correct_brightness(img, threshold=0.05, min_white=150, _debug=False):
 def extract_page(img, _debug=False):
     contour = get_contour_canny(img, _debug=_debug)
     page = crop_page(img, contour)
-    page = correct_brightness(page)
+    page = correct_brightness(page, _debug=_debug)
     return page
 
 
@@ -209,6 +224,10 @@ def convert_to_pdf(input_files, output_files, pdf_path, _debug=False):
             page = extract_page(img, _debug=_debug)
             codec.imwrite(output_path, page)
 
+        if _debug:
+            import matplotlib.pyplot as plt
+            plt.show()
+
     with time_ctx("pdf"):
         with open(pdf_path, "wb") as f:
             f.write(img2pdf.convert(output_files))
@@ -221,9 +240,10 @@ def delete_path(path, folder=True, ask_overwrite=True):
             print("FATAL: output path '{}' already exists. Please delete it.".format(path))
             sys.exit(2)
         else:
-            if ask_overwrite and input("Warning: output path '{}' exists. Delete? [yes/No] ".format(path)).lower() \
-                    not in ["y", "yes"]:
+            if ask_overwrite and input("Warning: output path '{}' exists.\n"
+                                       "Delete? [yes/No] ".format(path)).lower() not in ["y", "yes"]:
                 sys.exit(1)
+            print("INFO: deleted '{}'".format(path))
             if folder:
                 shutil.rmtree(str(path))
             else:
@@ -239,8 +259,8 @@ def convert_folder(foldername, ask_overwrite=True, _debug=False):
     pdfpath = folder.parent / (folder.name + ".pdf")
 
     # prepare file system
-    delete_path(pdfpath, folder=False, ask_overwrite=ask_overwrite)
     delete_path(output_folder, folder=True, ask_overwrite=ask_overwrite)
+    delete_path(pdfpath, folder=False, ask_overwrite=ask_overwrite)
     output_folder.mkdir()
 
     # invoke

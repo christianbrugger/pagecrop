@@ -8,12 +8,12 @@ except ImportError:
     import cv2
 
 
-def show_images(images, horizontal_image=2, filename=None):
+def show_images(images, horizontal_image=2, filename=None, show=True):
     """
     Show multiple images in a GUI window or save them to a file
     """
     import matplotlib.pyplot as plt
-    plt.clf()
+    plt.figure()
     columns = min(len(images), horizontal_image)
     rows = int(np.ceil(len(images) / float(horizontal_image)))
 
@@ -27,10 +27,10 @@ def show_images(images, horizontal_image=2, filename=None):
         plt.imshow(img_plt, interpolation="bilinear")
 
     plt.gcf().subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
-    if filename is None:
-        plt.show()
-    else:
+    if filename is not None:
         plt.savefig(filename + ".png", dpi=300)
+    if show:
+        plt.show()
 
 
 class time_ctx(object):
