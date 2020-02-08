@@ -24,6 +24,8 @@ import argparse
 import pathlib
 import sys
 import shutil
+import glob
+import time
 
 import numpy as np
 try:
@@ -40,6 +42,9 @@ try:
 except NameError:
     def profile(f):
         return f
+
+OUTPUT_FOLDER_PREFIX = "_crop_"
+OUTPUT_JPEG_PREFIX = "crop_"
 
 
 @profile
@@ -216,11 +221,13 @@ class JpegCodec:
 
 
 @profile
-def convert_to_pdf(input_files, output_files, pdf_path, _debug=False):
+def convert_to_pdf(input_files, output_files, pdf_path, rotate=False, _debug=False):
     codec = JpegCodec()
     for i, input_path, output_path in zip(range(len(input_files)), input_files, output_files):
         with time_ctx("page {}/{}".format(i + 1, len(input_files))):
             img = codec.imread(input_path)
+            if rotate:
+                img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             page = extract_page(img, _debug=_debug)
             codec.imwrite(output_path, page)
 
@@ -246,16 +253,24 @@ def delete_path(path, folder=True, ask_overwrite=True):
             print("INFO: deleted '{}'".format(path))
             if folder:
                 shutil.rmtree(str(path))
+                # wait until folder is deleted, especially on windows
+                while True:
+                    try:
+                        if not path.is_dir():
+                            break
+                    except PermissionError:
+                        pass
+                    time.sleep(0.1)
             else:
                 path.unlink()
 
 
-def convert_folder(foldername, ask_overwrite=True, _debug=False):
+def convert_folder(foldername, ask_overwrite=True, rotate=False, _debug=False):
     # calculate all paths
     folder = pathlib.Path(foldername)
     inputs = list(sorted(folder.glob("*.[jJ][pP][gG]")))
-    output_folder = folder.parent / ("crop_" + folder.name)
-    outputs = [output_folder / ("crop_" + path.name) for path in inputs]
+    output_folder = folder.parent / (OUTPUT_FOLDER_PREFIX + folder.name)
+    outputs = [output_folder / (OUTPUT_JPEG_PREFIX + path.name) for path in inputs]
     pdfpath = folder.parent / (folder.name + ".pdf")
 
     # prepare file system
@@ -267,26 +282,32 @@ def convert_folder(foldername, ask_overwrite=True, _debug=False):
     def to_str(iterable):
         return list(map(str, iterable))
 
-    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath), _debug=_debug)
+    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath), rotate, _debug=_debug)
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("folder", help="folder with *.jpg files.", nargs="+")
-    parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
-    parser.add_argument("--debug", help="show debug plots.", action="store_true")
-    args = parser.parse_args()
+    with time_ctx("total time:"):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("folder", help="folder with *.jpg files.", nargs="+")
+        parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
+        parser.add_argument("-r", "--rotate", help="rotate images by 90 degree counter-clockwise.",
+                            action="store_true")
+        parser.add_argument("--debug", help="show debug plots.", action="store_true")
+        args = parser.parse_args()
 
-    for foldername in args.folder:
-        if os.path.isdir(foldername):
-            print("Processing '{}':".format(foldername))
-            convert_folder(foldername, ask_overwrite=not args.yes, _debug=args.debug)
-            print()
-        else:
-            print("Skipping '{}'".format(foldername))
-            print()
+        # expand * patterns in paths
+        for folder in args.folder:
+            # enable glob * patterns also on windows
+            for foldername in glob.glob(folder):
+                if not os.path.isdir(foldername) or foldername.startswith(OUTPUT_FOLDER_PREFIX):
+                    print("Skipping '{}'".format(foldername))
+                    print()
+                else:
+                    print("Processing '{}':".format(foldername))
+                    convert_folder(foldername, ask_overwrite=not args.yes,
+                                   rotate=args.rotate, _debug=args.debug)
+                    print()
 
 
 if __name__ == "__main__":
-    with time_ctx("total time:"):
-        main()
+    main()

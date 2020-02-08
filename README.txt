@@ -14,14 +14,51 @@ After that you can simply invoke `crop` on the terminal.
 
 # Optional dependencies
 
+## Turbo JPEG
+
+This will speedup the jpeg processing by 2-4x. First install the python package.
+
 ```
-pip install matplotlib
-pip install line_profiler
 pip install libturbojpeg
-Linux: sudo apt install libturbojpeg
 ```
 
-Execute the line profiler via:
+Then install the library `libturbojpeg`.
++ Linux: Install via `sudo apt install libturbojpeg`
++ Windows: Installer `libjpeg-turbo-*-vc64.exe` from https://sourceforge.net/projects/libjpeg-turbo/files
 ```
-kernprof -l -v crop.py
+
+## Matplotlib
+
+This package is required for the debug plots.
+
+```
+pip install matplotlib
+```
+
+Now you can invoke the `crop``  tool with the `--debug` option. Then you should see some plots.
+
+
+## Line Profiler
+
+Profile the source code. First install the package.
+
+```
+pip install line_profiler
+```
+
+Then start the profiler via:
+```
+kernprof -l -v crop ..
+```
+
+# Useful scripts
+
+To reverse the order of images, invoke the following commands in a python shell.
+
+```
+import os
+names = list(sorted(os.listdir(".")))
+print(names)
+for i, name in enumerate(reversed(names)):
+	os.rename(name, "{:03d}.JPG".format(i))
 ```
