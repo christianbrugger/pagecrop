@@ -207,7 +207,7 @@ class JpegCodec:
         else:
             return cv2.imread(path)
 
-    def imwrite(self, path, img, quality=70):
+    def imwrite(self, path, img, quality=30):
         if self.turbo:
             with open(path, "wb") as f:
                 f.write(self.turbo.encode(img, quality=quality))
