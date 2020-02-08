@@ -32,7 +32,7 @@ except ImportError:
     import cv2
 import img2pdf
 
-from utils import show_images, time_ctx
+from papercrop.utils import show_images, time_ctx
 
 
 try:
