@@ -221,13 +221,13 @@ class JpegCodec:
 
 
 @profile
-def convert_to_pdf(input_files, output_files, pdf_path, rotate=False, _debug=False):
+def convert_to_pdf(input_files, output_files, pdf_path, rotation_flag=None, _debug=False):
     codec = JpegCodec()
     for i, input_path, output_path in zip(range(len(input_files)), input_files, output_files):
         with time_ctx("page {}/{}".format(i + 1, len(input_files))):
             img = codec.imread(input_path)
-            if rotate:
-                img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            if rotation_flag is not None:
+                img = cv2.rotate(img, rotation_flag)
             page = extract_page(img, _debug=_debug)
             codec.imwrite(output_path, page)
 
@@ -265,7 +265,7 @@ def delete_path(path, folder=True, ask_overwrite=True):
                 path.unlink()
 
 
-def convert_folder(foldername, ask_overwrite=True, rotate=False, _debug=False):
+def convert_folder(foldername, ask_overwrite=True, rotation_flag=None, _debug=False):
     # calculate all paths
     folder = pathlib.Path(foldername)
     inputs = list(sorted(folder.glob("*.[jJ][pP][gG]")))
@@ -282,7 +282,7 @@ def convert_folder(foldername, ask_overwrite=True, rotate=False, _debug=False):
     def to_str(iterable):
         return list(map(str, iterable))
 
-    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath), rotate, _debug=_debug)
+    convert_to_pdf(to_str(inputs), to_str(outputs), str(pdfpath), rotation_flag, _debug=_debug)
 
 
 def main():
@@ -290,11 +290,25 @@ def main():
         parser = argparse.ArgumentParser()
         parser.add_argument("folder", help="folder with *.jpg files.", nargs="+")
         parser.add_argument("-y", "--yes", help="overwrite files by defailt.", action="store_true")
-        parser.add_argument("-r", "--rotate", help="rotate images by 90 degree counter-clockwise.",
-                            action="store_true")
+        parser.add_argument("-ccw", "--rotate-ccw", help="rotate images by 90 degrees counter-clockwise.", action="store_true")
+        parser.add_argument("-cw", "--rotate-cw", help="rotate images by 90 degrees clockwise.", action="store_true")
+        parser.add_argument("--rotate-180", help="rotate images by 180 degrees.", action="store_true")
         parser.add_argument("--debug", help="show debug plots.", action="store_true")
         args = parser.parse_args()
 
+        if args.rotate_ccw + args.rotate_cw + args.rotate_180 > 1:
+            print("You can only enable eith --rotate-ccw, --rotate-cw or --rotate-180, not both.")
+            sys.exit(1)
+
+        if args.rotate_ccw:
+            rotation = cv2.ROTATE_90_COUNTERCLOCKWISE
+        elif args.rotate_cw:
+            rotation = cv2.ROTATE_90_CLOCKWISE
+        elif args.rotate_180:
+            rotation = cv2.ROTATE_180
+        else:
+            rotation = None
+        
         # expand * patterns in paths
         for folder in args.folder:
             # enable glob * patterns also on windows
@@ -305,7 +319,7 @@ def main():
                 else:
                     print("Processing '{}':".format(foldername))
                     convert_folder(foldername, ask_overwrite=not args.yes,
-                                   rotate=args.rotate, _debug=args.debug)
+                                   rotation_flag=rotation, _debug=args.debug)
                     print()
 
 
