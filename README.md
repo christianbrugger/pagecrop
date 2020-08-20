@@ -19,7 +19,7 @@ After that you can simply invoke `crop` on the terminal.
 This will speedup the jpeg processing by 2-4x. First install the python package.
 
 ```
-pip install libturbojpeg
+pip install PyTurboJPEG
 ```
 
 Then install the library `libturbojpeg`.
